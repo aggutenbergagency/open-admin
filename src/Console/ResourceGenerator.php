@@ -4,6 +4,14 @@ namespace OpenAdmin\Admin\Console;
 
 use Illuminate\Database\Eloquent\Model;
 
+use Illuminate\Database\MySqlConnection;
+use PDO;
+use Doctrine\DBAL\Schema\AbstractSchemaManager;
+use Doctrine\DBAL\Connection as DoctrineConnection;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Exception;
+use \OpenAdmin\Admin\Console\ResourceGenerator as BaseResourceGenerator;
+
 class ResourceGenerator
 {
     /**
@@ -205,39 +213,87 @@ class ResourceGenerator
     }
 
     /**
-     * Get columns of a giving model.
+     * Get table columns for the model.
      *
-     * @throws \Exception
-     *
-     * @return \Doctrine\DBAL\Schema\Column[]
+     * @return array
+     * @throws Exception
      */
-    protected function getTableColumns()
+    protected function getTableColumns(): array
+    {   
+        $doctrineConnection = $this->createDoctrineConnection();
+        $schemaManager = $doctrineConnection->getSchemaManager();
+
+        $table = $this->getTableNameWithPrefix();
+        $this->mapCustomDoctrineTypes($schemaManager);
+
+        [$database, $table] = $this->splitDatabaseAndTable($table);
+
+        return $schemaManager->listTableColumns($table, $database);
+    }
+
+    /**
+     * Create a Doctrine DBAL connection.
+     *
+     * @return DoctrineConnection
+     * @throws Exception
+     */
+    private function createDoctrineConnection(): DoctrineConnection
     {
-        if (!$this->model->getConnection()->isDoctrineAvailable()) {
-            throw new \Exception(
-                'You need to require doctrine/dbal: ~2.3 in your own composer.json to get database columns. '
-            );
-        }
+        /** @var MySqlConnection $connection */
+        $connection = $this->model->getConnection();
 
-        $table = $this->model->getConnection()->getTablePrefix().$this->model->getTable();
-        /** @var \Doctrine\DBAL\Schema\MySqlSchemaManager $schema */
-        $schema = $this->model->getConnection()->getDoctrineSchemaManager($table);
+        return DriverManager::getConnection([
+            'pdo'      => $connection->getPdo(),
+            'driver'   => 'pdo_mysql',
+            'user'     => env('DB_USERNAME'),
+            'password' => env('DB_PASSWORD'),
+            'dbname'   => env('DB_DATABASE'),
+            'host'     => env('DB_HOST', '127.0.0.1'),
+            'port'     => env('DB_PORT', 3306),
+        ]);
+    }
 
-        // custom mapping the types that doctrine/dbal does not support
-        $databasePlatform = $schema->getDatabasePlatform();
+    /**
+     * Get the table name with prefix.
+     *
+     * @return string
+     */
+    private function getTableNameWithPrefix(): string
+    {
+        $connection = $this->model->getConnection();
+        return $connection->getTablePrefix() . $this->model->getTable();
+    }
+
+    /**
+     * Map custom Doctrine types.
+     *
+     * @param AbstractSchemaManager $schemaManager
+     * @return void
+     */
+    private function mapCustomDoctrineTypes(AbstractSchemaManager $schemaManager): void
+    {
+        $databasePlatform = $schemaManager->getDatabasePlatform();
 
         foreach ($this->doctrineTypeMapping as $doctrineType => $dbTypes) {
             foreach ($dbTypes as $dbType) {
                 $databasePlatform->registerDoctrineTypeMapping($dbType, $doctrineType);
             }
         }
+    }
 
-        $database = null;
-        if (strpos($table, '.')) {
-            list($database, $table) = explode('.', $table);
+    /**
+     * Split database and table name if necessary.
+     *
+     * @param string $table
+     * @return array [database, table]
+     */
+    private function splitDatabaseAndTable(string $table): array
+    {
+        if (strpos($table, '.') !== false) {
+            return explode('.', $table, 2);
         }
 
-        return $schema->listTableColumns($table, $database);
+        return [null, $table];
     }
 
     /**
