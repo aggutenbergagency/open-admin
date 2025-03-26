@@ -552,17 +552,11 @@ class HasMany extends Field
                     ->fill($data);
             }
         } else {
-            if (empty($this->value)) {
-                return [];
-            }
-
-            foreach ($this->value as $data) {
-                $key = Arr::get($data, $relation->getRelated()->getKeyName());
-
-                $model = $relation->getRelated()->replicate()->forceFill($data);
-
-                $forms[$key] = $this->buildNestedForm($this->column, $this->builder, $model)
-                    ->fill($data);
+            foreach ($relation->get() as $data) {
+                $key = $data->getKey();
+    
+                $forms[$key] = $this->buildNestedForm($this->column, $this->builder, $data)
+                    ->fill($data->toArray());
             }
         }
 
