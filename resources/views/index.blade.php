@@ -12,6 +12,12 @@
     <link rel="shortcut icon" href="{{$favicon}}">
     @endif
 
+    <script>
+        function LA() {}
+        LA.token = "{{ csrf_token() }}";
+        LA.user = @json($_user_);
+    </script>
+
     {!! Admin::css() !!}
     {!! Admin::headerJs() !!}
     {!! Admin::js() !!}
@@ -19,7 +25,7 @@
 
 </head>
 
-<body class="{{config('admin.skin')}} {{ $body_classes }}">
+<body class="{{config('admin.skin')}} {{ implode(' ', config('admin.layout')) }} {{ $body_classes }}">
 
     @if($alert = config('admin.top_alert'))
         <div class="alert">
@@ -52,11 +58,7 @@
 
     <button id="totop" title="Go to top" style="display: none;"><i class="icon-chevron-up"></i></button>
 
-    <script>
-        function LA() {}
-        LA.token = "{{ csrf_token() }}";
-        LA.user = @json($_user_);
-    </script>
+
 
     </body>
 </html>

@@ -146,7 +146,6 @@
                     val = admin.grid.inline_edit.functions[triggerId].returnValue(trigger,content);
                 }
             }
-            console.log(val);
             if (!val){
                 val = content.querySelector('.ie-input').value;
             }

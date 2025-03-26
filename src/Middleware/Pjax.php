@@ -68,12 +68,20 @@ class Pjax
     {
         $exception = $response->exception;
 
-        $error = new MessageBag([
-            'type'    => get_class($exception),
-            'message' => $exception->getMessage(),
-            'file'    => $exception->getFile(),
-            'line'    => $exception->getLine(),
-        ]);
+        if (empty($exception)) {
+            $error = new MessageBag([
+                'type'    => 'unknown',
+                'message' => json_encode($response),
+            ]);
+        } else {
+            $error = new MessageBag([
+                'type'    => get_class($exception),
+                'message' => $exception->getMessage(),
+                'file'    => $exception->getFile(),
+                'line'    => $exception->getLine(),
+                'trace'   => json_encode($exception->getTrace()),
+            ]);
+        }
 
         return back()->withInput()->withErrors($error, 'exception');
     }
@@ -95,16 +103,6 @@ class Pjax
 
         $content = $this->makeFromBetween($input, '<!--start-pjax-container-->', '<!--end-pjax-container-->');
         $content = $this->decodeUtf8HtmlEntities($content);
-
-        /*
-        if (empty($content)) {
-            // try dom-crwawler
-            // this is much slower though
-            $crawler = new Crawler($input);
-            $title = $this->makeTitle($crawler);
-            $content = $this->fetchContents($crawler, $container);
-        }
-        */
 
         if (empty($content)) {
             abort(422);

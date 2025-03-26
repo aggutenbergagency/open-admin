@@ -110,4 +110,5 @@ return [
     'prev'                   => 'Prev',
     'next'                   => 'Next',
     'quick_create'           => 'Quick create',
+    'save_before_add_subs'   => 'Save before adding new sub-items.',
 ];

@@ -533,7 +533,7 @@ class Model
         }
 
         $columnNameContainsDots = Str::contains($columnName, '.');
-        $isRelation = $this->queries->contains(function ($query) use ($columnName) {
+        $isRelation             = $this->queries->contains(function ($query) use ($columnName) {
             return $query['method'] === 'with' && in_array($columnName, $query['arguments'], true);
         });
         if ($columnNameContainsDots === true && $isRelation) {
@@ -545,19 +545,19 @@ class Model
                 //json
                 $this->resetOrderBy();
                 $explodedCols = explode('.', $this->sort['column']);
-                $col = array_shift($explodedCols);
-                $parts = implode('.', $explodedCols);
-                $columnName = "JSON_EXTRACT({$col}, '$.{$parts}')";
+                $col          = array_shift($explodedCols);
+                $parts        = implode('.', $explodedCols);
+                $columnName   = "JSON_EXTRACT({$col}, '$.{$parts}')";
             }
 
             // get column. if contains "cast", set set column as cast
             if (!empty($this->sort['cast'])) {
-                $column = "CAST({$columnName} AS {$this->sort['cast']}) {$this->sort['type']}";
-                $method = 'orderByRaw';
+                $column    = "CAST({$columnName} AS {$this->sort['cast']}) {$this->sort['type']}";
+                $method    = 'orderByRaw';
                 $arguments = [$column];
             } else {
-                $column = $columnName;
-                $method = 'orderBy';
+                $column    = $columnName;
+                $method    = 'orderBy';
                 $arguments = [$column, $this->sort['type']];
             }
 
@@ -634,11 +634,9 @@ class Model
         $relatedTable = $relation->getRelated()->getTable();
 
         if ($relation instanceof BelongsTo) {
-            $foreignKeyMethod = version_compare(app()->version(), '5.8.0', '<') ? 'getForeignKey' : 'getForeignKeyName';
-
             return [
                 $relatedTable,
-                $relation->{$foreignKeyMethod}(),
+                $relation->getForeignKeyName(),
                 '=',
                 $relatedTable.'.'.$relation->getRelated()->getKeyName(),
             ];

@@ -15,6 +15,11 @@ trait HasHeader
     public $filter;
 
     /**
+     * @var bool|Sorter
+     */
+    public $sorter = false;
+
+    /**
      * @var array
      */
     protected $headers = [];
@@ -32,7 +37,6 @@ trait HasHeader
             $header->setParent($this);
             $this->filter = $header;
         }
-
         $this->headers[] = $header;
 
         return $this;
@@ -45,13 +49,16 @@ trait HasHeader
      *
      * @return Column|string
      */
-    protected function addSorter($cast = null)
+    protected function addSorter($set = true, $cast = null)
     {
-        $sortName = $this->grid->model()->getSortName();
+        if ($set) {
+            $sortName     = $this->grid->model()->getSortName();
+            $this->sorter = new Sorter($sortName, $this->getName(), $cast);
+        } else {
+            $this->sorter = false;
+        }
 
-        $sorter = new Sorter($sortName, $this->getName(), $cast);
-
-        return $this->addHeader($sorter);
+        return $this;
     }
 
     /**
@@ -115,6 +122,13 @@ trait HasHeader
      */
     public function renderHeader()
     {
+        if ($this->sorter) {
+            if (empty($this->grid->sortColumnsRef[$this->name])) {
+                $this->addHeader($this->sorter);
+                $this->grid->sortColumnsRef[$this->name] = true;
+            }
+        }
+
         return collect($this->headers)->map(function ($item) {
             if ($item instanceof Renderable) {
                 return $item->render();

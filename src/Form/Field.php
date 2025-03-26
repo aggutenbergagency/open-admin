@@ -3,6 +3,7 @@
 namespace OpenAdmin\Admin\Form;
 
 use Closure;
+use Exception;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Support\Arr;
@@ -10,6 +11,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Traits\Macroable;
 use OpenAdmin\Admin\Admin;
 use OpenAdmin\Admin\Form;
+use OpenAdmin\Admin\Form\Field\Traits\HasUniqueId;
 use OpenAdmin\Admin\Widgets\Form as WidgetForm;
 
 /**
@@ -18,10 +20,11 @@ use OpenAdmin\Admin\Widgets\Form as WidgetForm;
 class Field implements Renderable
 {
     use Macroable;
+    use HasUniqueId;
 
     public const FILE_DELETE_FLAG = '_file_del_';
-    public const FILE_SORT_FLAG = '_file_sort_';
-    public const FILE_ADD_FLAG = '_file_add_';
+    public const FILE_SORT_FLAG   = '_file_sort_';
+    public const FILE_ADD_FLAG    = '_file_add_';
 
     /**
      * Element id.
@@ -31,11 +34,32 @@ class Field implements Renderable
     protected $id;
 
     /**
+     * Element parentId.
+     *
+     * @var number|string
+     */
+    public $parentId;
+
+    /**
+     * Element parentColumn.
+     *
+     * @var number|string
+     */
+    public $parentColumn;
+
+    /**
      * Element value.
      *
      * @var mixed
      */
     protected $value;
+
+    /**
+     * Relation name.
+     *
+     * @var string
+     */
+    protected $relationName;
 
     /**
      * Data of all original columns of value.
@@ -80,6 +104,13 @@ class Field implements Renderable
     protected $column = '';
 
     /**
+     * key name in request.
+     *
+     * @var string|array
+     */
+    protected $requestFieldKey = '';
+
+    /**
      * Form element name.
      *
      * @var string
@@ -92,6 +123,20 @@ class Field implements Renderable
      * @var array
      */
     protected $elementClass = [];
+
+    /**
+     * Form element prepended classes.
+     *
+     * @var array
+     */
+    protected $prependClass = [];
+
+    /**
+     * Form element appended classes.
+     *
+     * @var array
+     */
+    protected $appendClass = [];
 
     /**
      * Variables of elements.
@@ -136,7 +181,7 @@ class Field implements Renderable
     public $updateRules = [];
 
     /**
-     * @var \Closure
+     * @var Closure
      */
     protected $validator;
 
@@ -244,7 +289,7 @@ class Field implements Renderable
     /**
      * column data format.
      *
-     * @var \Closure
+     * @var Closure
      */
     protected $customFormat = null;
 
@@ -264,7 +309,7 @@ class Field implements Renderable
     protected $groupClass = [];
 
     /**
-     * @var \Closure
+     * @var Closure
      */
     protected $callback;
 
@@ -274,6 +319,11 @@ class Field implements Renderable
     public $isJsonType = false;
 
     /**
+     * @var bool
+     */
+    public $must_prepare = false;
+
+    /**
      * Field constructor.
      *
      * @param       $column
@@ -281,9 +331,11 @@ class Field implements Renderable
      */
     public function __construct($column = '', $arguments = [])
     {
-        $this->column = $this->formatColumn($column);
-        $this->label = $this->formatLabel($arguments);
-        $this->id = $this->formatId($column);
+        $this->column          = $this->formatColumn($column);
+        $this->label           = $this->formatLabel($arguments);
+        $this->id              = $this->formatId($column);
+        $this->uniqueId        = $this->uniqueId(10);
+        $this->requestFieldKey = $this->column;
 
         if (method_exists($this, 'init')) {
             $this->init();
@@ -406,6 +458,50 @@ class Field implements Renderable
     }
 
     /**
+     * Get form element name.
+     *
+     * @return string | array $form element name
+     */
+    public function getName(): string | array
+    {
+        return $this->elementName ?: $this->formatName($this->column);
+    }
+
+    /**
+     * Set the key of the field in the request.
+     *
+     * @param string
+     *
+     * @return $this
+     */
+    public function setRequestFieldKey($fieldKey)
+    {
+        $this->requestFieldKey = $fieldKey;
+
+        return $this;
+    }
+
+    /**
+     * Set the key of the field in the request.
+     *
+     * @return string
+     */
+    public function getRequestFieldKey()
+    {
+        return $this->requestFieldKey;
+    }
+
+    /**
+     * Returns if the field json type.
+     *
+     * @return bool
+     */
+    public function isJsonType()
+    {
+        return $this->isJsonType;
+    }
+
+    /**
      * Fill data to the field.
      *
      * @param array $data
@@ -438,7 +534,7 @@ class Field implements Renderable
      */
     protected function formatValue()
     {
-        if (isset($this->customFormat) && $this->customFormat instanceof \Closure) {
+        if (isset($this->customFormat) && $this->customFormat instanceof Closure) {
             $this->value = call_user_func($this->customFormat, $this->value);
         }
     }
@@ -446,11 +542,11 @@ class Field implements Renderable
     /**
      * custom format form column data when edit.
      *
-     * @param \Closure $call
+     * @param Closure $call
      *
      * @return $this
      */
-    public function customFormat(\Closure $call): self
+    public function customFormat(Closure $call): self
     {
         $this->customFormat = $call;
 
@@ -473,7 +569,6 @@ class Field implements Renderable
 
             return;
         }
-
         $this->original = Arr::get($data, $this->column);
     }
 
@@ -577,7 +672,7 @@ class Field implements Renderable
         $this->setLabelClass(['asterisk']);
 
         // Only text field has `required` attribute.
-        if (!$this instanceof Form\Field\Text) {
+        if (!$this instanceof Field\Text) {
             return;
         }
 
@@ -745,7 +840,7 @@ class Field implements Renderable
             $rules = $this->rules;
         }
 
-        if ($rules instanceof \Closure) {
+        if ($rules instanceof Closure) {
             $rules = $rules->call($this, $this->form);
         }
 
@@ -791,7 +886,7 @@ class Field implements Renderable
             return;
         }
 
-        $pattern = "/{$rule}[^\|]?(\||$)/";
+        $pattern     = "/{$rule}[^\|]?(\||$)/";
         $this->rules = preg_replace($pattern, '', $this->rules, -1);
     }
 
@@ -900,7 +995,7 @@ class Field implements Renderable
      */
     public function getDefault()
     {
-        if ($this->default instanceof \Closure) {
+        if ($this->default instanceof Closure) {
             return call_user_func($this->default, $this->form);
         }
 
@@ -928,7 +1023,7 @@ class Field implements Renderable
      */
     public function getDefaultOnEmpty()
     {
-        if ($this->default_on_empty instanceof \Closure) {
+        if ($this->default_on_empty instanceof Closure) {
             return call_user_func($this->default_on_empty, $this->form);
         }
 
@@ -1006,7 +1101,7 @@ class Field implements Renderable
 
             $input = $this->sanitizeInput($input, $this->column);
 
-            $rules[$this->column] = $fieldRules;
+            $rules[$this->column]      = $fieldRules;
             $attributes[$this->column] = $this->label;
         }
 
@@ -1015,8 +1110,8 @@ class Field implements Renderable
                 if (!array_key_exists($column, $input)) {
                     continue;
                 }
-                $input[$column.$key] = Arr::get($input, $column);
-                $rules[$column.$key] = $fieldRules;
+                $input[$column.$key]      = Arr::get($input, $column);
+                $rules[$column.$key]      = $fieldRules;
                 $attributes[$column.$key] = $this->label."[$column]";
             }
         }
@@ -1209,6 +1304,20 @@ class Field implements Renderable
     }
 
     /**
+     * Get relationName.
+     *
+     * @return mixed
+     */
+    public function hasRelation()
+    {
+        if (!$this->isJsonType() && !is_array($this->column) && strpos($this->column, '.') !== false) {
+            return true;
+        }
+
+        return !empty($this->relationName);
+    }
+
+    /**
      * Add a divider after this field.
      *
      * @return $this
@@ -1313,6 +1422,34 @@ class Field implements Renderable
     }
 
     /**
+     * prepend element class.
+     *
+     * @param string|array $class
+     *
+     * @return $this
+     */
+    public function setPrependElementClass($class): self
+    {
+        $this->prependClass = array_merge($this->prependClass, (array) $class);
+
+        return $this;
+    }
+
+    /**
+     * append element class.
+     *
+     * @param string|array $class
+     *
+     * @return $this
+     */
+    public function setAppendElementClass($class): self
+    {
+        $this->appendClass = array_merge($this->appendClass, (array) $class);
+
+        return $this;
+    }
+
+    /**
      * Get element class.
      *
      * @return array
@@ -1323,6 +1460,16 @@ class Field implements Renderable
             $name = $this->elementName ?: $this->formatName($this->column);
 
             $this->elementClass = (array) str_replace(['[', ']'], '_', $name);
+
+            // prevent collission for fields with the same name
+            $this->elementClass = array_merge([$this->uniqueId], $this->elementClass);
+
+            if ($this->prependClass) {
+                $this->elementClass = array_merge($this->prependClass, $this->elementClass);
+            }
+            if ($this->appendClass) {
+                $this->elementClass = array_merge($this->elementClass, $this->appendClass);
+            }
         }
 
         return $this->elementClass;
@@ -1368,8 +1515,21 @@ class Field implements Renderable
 
             return $classes;
         }
+        $elementClass = str_replace(['>', ' '], '.', $elementClass);
 
         return '.'.implode('.', $elementClass);
+    }
+
+    /**
+     * Get a javascript save variable name .
+     *
+     * @return string
+     */
+    public function getVariableName()
+    {
+        $elementClassSelector = $this->getElementClassSelector();
+
+        return str_replace(['-', '.', '>', ' '], '_', $elementClassSelector);
     }
 
     /**
@@ -1495,6 +1655,20 @@ class Field implements Renderable
     }
 
     /**
+     * @param array $labelClass
+     * @param bool  $replace
+     *
+     * @return self
+     */
+    public function setParent($parentColumn, $parentId): self
+    {
+        $this->parentColumn = $parentColumn;
+        $this->parentId     = $parentId;
+
+        return $this;
+    }
+
+    /**
      * Get the view variables of this field.
      *
      * @return array
@@ -1502,20 +1676,20 @@ class Field implements Renderable
     public function variables(): array
     {
         return array_merge($this->variables, [
-            'id'              => $this->id,
-            'name'            => $this->elementName ?: $this->formatName($this->column),
-            'help'            => $this->help,
-            'inline'          => $this->inline,
-            'showAsSection'   => $this->showAsSection,
-            'class'           => $this->getElementClassString(),
-            'value'           => $this->value(),
-            'label'           => $this->label,
-            'viewClass'       => $this->getViewElementClasses(),
-            'column'          => $this->column,
-            'errorKey'        => $this->getErrorKey(),
-            'attributes'      => $this->formatAttributes(),
-            'placeholder'     => $this->getPlaceholder(),
-            'attributes_obj'  => $this->attributes,
+            'id'             => $this->id,
+            'name'           => $this->getName(),
+            'help'           => $this->help,
+            'inline'         => $this->inline,
+            'showAsSection'  => $this->showAsSection,
+            'class'          => $this->getElementClassString(),
+            'value'          => $this->value(),
+            'label'          => $this->label,
+            'viewClass'      => $this->getViewElementClasses(),
+            'column'         => $this->column,
+            'errorKey'       => $this->getErrorKey(),
+            'attributes'     => $this->formatAttributes(),
+            'placeholder'    => $this->getPlaceholder(),
+            'attributes_obj' => $this->attributes,
         ]);
     }
 
@@ -1602,9 +1776,9 @@ class Field implements Renderable
     }
 
     /**
-     * @param \Closure $callback
+     * @param Closure $callback
      *
-     * @return \OpenAdmin\Admin\Form\Field
+     * @return Field
      */
     public function with(Closure $callback): self
     {
@@ -1659,5 +1833,24 @@ class Field implements Renderable
     public function __toString()
     {
         return $this->render()->render();
+    }
+
+    public function __call($fn, $args)
+    {
+        if (strpos($fn, 'get') === 0) {
+            $property = substr($fn, 3);
+
+            $lc_property = lcfirst($property);
+            if (property_exists($this, $lc_property)) {
+                return $this->{$lc_property};
+            }
+            if (property_exists($this, $property)) {
+                return $this->{$property};
+            }
+
+            throw new Exception('get'.$fn.' has no related property');
+        }
+
+        throw new Exception($fn.' is not callable');
     }
 }

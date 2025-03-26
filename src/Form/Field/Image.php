@@ -20,7 +20,7 @@ class Image extends File
      *
      * @var string
      */
-    protected $rules = 'image';
+    protected $rules = 'nullable|image';
 
     protected function setType($type = 'image')
     {
@@ -38,18 +38,14 @@ class Image extends File
             return parent::prepare($file);
         }
 
-        if (request()->has($this->column.Field::FILE_DELETE_FLAG)) {
+        if (request()->has($this->getRequestFieldKey().Field::FILE_DELETE_FLAG)) {
             $this->destroy();
 
             return '';
         }
 
         if (!empty($file)) {
-            if ($this->picker) {
-                return parent::prepare($file);
-            }
             $this->name = $this->getStoreName($file);
-
             $this->callInterventionMethods($file->getRealPath());
 
             $path = $this->uploadAndDeleteOriginal($file);
@@ -57,9 +53,9 @@ class Image extends File
             $this->uploadAndDeleteOriginalThumbnail($file);
 
             return $path;
+        } else {
+            return $this->original();
         }
-
-        return false;
     }
 
     /**

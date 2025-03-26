@@ -126,7 +126,6 @@
         @endif
     }
 
-    //var modalTrigger = '.{$this->relation_prefix}{$column} .select-relation';
     var config = {
         modal_elm : document.querySelector('#{{$modal}}'),
         url : "{!! $url !!}",

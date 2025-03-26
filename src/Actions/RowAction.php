@@ -23,6 +23,11 @@ abstract class RowAction extends GridAction
     public $selectorPrefix = '.grid-row-action-';
 
     /**
+     * @var string
+     */
+    public $class = '';
+
+    /**
      * @var bool
      */
     protected $asColumn = false;
@@ -134,7 +139,9 @@ abstract class RowAction extends GridAction
      */
     public function render()
     {
-        $linkClass = ($this->parent->getActionClass() != "OpenAdmin\Admin\Grid\Displayers\Actions\Actions") ? 'dropdown-item' : '';
+        $linkClass = (!$this->asColumn && $this->parent->getActionClass() != "OpenAdmin\Admin\Grid\Displayers\Actions\Actions") ? 'dropdown-item' : '';
+        $linkClass .= ' '.$this->class ?? '';
+
         $icon = $this->getIcon();
 
         if ($href = $this->href()) {

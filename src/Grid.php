@@ -138,6 +138,19 @@ class Grid
     public $perPage = 20;
 
     /**
+     * Enable sorting for columsn.
+     *
+     * @var bool
+     */
+    public $sortColumns = true;
+
+    /**
+     * Refrence for added sorted (needed for fixed columsn table).
+     *
+     * @var array
+     */
+    public $sortColumnsRef = [];
+    /**
      * @var []callable
      */
     protected $renderingCallbacks = [];
@@ -180,7 +193,7 @@ class Grid
      */
     public function __construct(Eloquent $model, Closure $builder = null)
     {
-        $this->model = new Model($model, $this);
+        $this->model   = new Model($model, $this);
         $this->keyName = $model->getKeyName();
         $this->builder = $builder;
 
@@ -197,7 +210,7 @@ class Grid
         $this->tableID = uniqid('grid-table');
 
         $this->columns = Collection::make();
-        $this->rows = Collection::make();
+        $this->rows    = Collection::make();
 
         $this->initTools()
             ->initFilter();
@@ -606,7 +619,7 @@ class Grid
     protected function buildRows(array $data, Collection $collection)
     {
         $this->rows = collect($data)->map(function ($model, $number) use ($collection) {
-            return new Row($number, $model, $collection->get($number)->getKey());
+            return new Row($number, $model, $collection->get($number)->getKey(), $this->perPage);
         });
 
         if ($this->rowsCallback) {
@@ -771,9 +784,9 @@ class Grid
             return false;
         }
 
-        if ($relation instanceof Relations\HasOne ||
-            $relation instanceof Relations\BelongsTo ||
-            $relation instanceof Relations\MorphOne
+        if ($relation instanceof Relations\HasOne
+            || $relation instanceof Relations\BelongsTo
+            || $relation instanceof Relations\MorphOne
         ) {
             $this->model()->with($method);
 
@@ -819,7 +832,26 @@ class Grid
             return $column;
         }
 
-        return $this->addColumn($method, $label);
+        $column = $this->addColumn($method, $label);
+        $column = $this->addColumnDefaults($column);
+
+        return $column;
+    }
+
+    /**
+     * Add default to columns to the grid view.
+     *
+     * @param $column
+     *
+     * @return Column
+     */
+    public function addColumnDefaults($column)
+    {
+        if ($this->sortColumns) {
+            $column->sortable();
+        }
+
+        return $column;
     }
 
     /**
@@ -901,6 +933,20 @@ class Grid
     public function setResource($path)
     {
         $this->resourcePath = $path;
+
+        return $this;
+    }
+
+    /**
+     * Set sorting on for all column.
+     *
+     * @param bool $set
+     *
+     * @return $this
+     */
+    public function setSortColumns($set = true)
+    {
+        $this->sortColumns = $set;
 
         return $this;
     }

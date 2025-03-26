@@ -106,4 +106,5 @@ return [
     'next'                   => 'Volgende',
     'quick_create'           => 'Snel aanmaken',
     'menu_titles'            => [],
+    'save_before_add_subs'   => 'Sla eerst op voor toevoegen van nieuwe sub-items.',
 ];

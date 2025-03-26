@@ -20,12 +20,28 @@ trait Sortable
 
     public function addSortable($pref = '', $suf = '')
     {
-        if ($this->options['sortable']) {
-            $script = <<<JS
+        if (!empty($this->options['sortable'])) {
+            $selector = $this->column_class ?? $this->column;
+            $selector = $pref.$selector.$suf;
 
-                var sortable = new Sortable(document.querySelector('{$pref}{$this->column}{$suf}'), {
+            $onEnd = '';
+            if (is_string($this->options['sortable'])) {
+                $field = $this->options['sortable'];
+                $onEnd = <<<JS
+                    ,onEnd: function (evt) {
+                        document.querySelectorAll('{$selector} .{$field}').forEach((el, i) => {
+                            el.value = i
+                        })
+                    },
+                JS;
+            }
+
+            $script = <<<JS
+                var sortable = new Sortable(document.querySelector('{$selector}'), {
                     animation:150,
                     handle: ".handle"
+                    {$onEnd}
+
                 });
             JS;
             Admin::script($script);

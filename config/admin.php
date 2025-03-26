@@ -288,16 +288,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | toastr config
+    |--------------------------------------------------------------------------
+    |
+    | Apply custom config to toastr
+    | see https://github.com/apvarun/toastify-js for config option
+    | example: ['position'=>'center', "duration"=>6000]
+    |
+    */
+    'toastr_config' => [],
+
+    /*
+    |--------------------------------------------------------------------------
     | Application layout
     |--------------------------------------------------------------------------
     |
     | This value is the layout of admin pages.
     |
-    | Supported: "fixed", "layout-boxed", "layout-top-nav", "sidebar-collapse",
-    | "sidebar-mini".
-    |
+    | Supported: "fixed", "sidebar-collapse", "sidebar-mini"
+    | 'layout' => ["sidebar-mini","sidebar-collapse"] // open the menu small and open on hover
     */
-    'layout' => ['sidebar-mini', 'sidebar-collapse'],
+    'layout' => [],
 
     /*
     |--------------------------------------------------------------------------

@@ -8,7 +8,6 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\MessageBag;
@@ -19,8 +18,10 @@ use OpenAdmin\Admin\Form\Builder;
 use OpenAdmin\Admin\Form\Concerns\HandleCascadeFields;
 use OpenAdmin\Admin\Form\Concerns\HasFields;
 use OpenAdmin\Admin\Form\Concerns\HasFormAttributes;
+use OpenAdmin\Admin\Form\Concerns\HasFormFlags;
 use OpenAdmin\Admin\Form\Concerns\HasHooks;
 use OpenAdmin\Admin\Form\Field;
+use OpenAdmin\Admin\Form\Field\HasMany;
 use OpenAdmin\Admin\Form\Layout\Layout;
 use OpenAdmin\Admin\Form\Row;
 use OpenAdmin\Admin\Form\Tab;
@@ -39,10 +40,7 @@ class Form implements Renderable
     use HasFormAttributes;
     use HandleCascadeFields;
     use ShouldSnakeAttributes;
-    /**
-     * Remove flag in `has many` form.
-     */
-    public const REMOVE_FLAG_NAME = '_remove_';
+    use HasFormFlags;
 
     /**
      * Eloquent model of the form.
@@ -52,7 +50,7 @@ class Form implements Renderable
     public $model;
 
     /**
-     * @var \Illuminate\Validation\Validator
+     * @var Validator
      */
     public $validator;
 
@@ -81,6 +79,13 @@ class Form implements Renderable
      * @var array
      */
     protected $relation_fields = [];
+
+    /**
+     * Refrence to model's relations actual fields.
+     *
+     * @var array
+     */
+    protected $relations_fields_ref = [];
 
     /**
      * Refrence to fields that must be prepared before update.
@@ -116,7 +121,7 @@ class Form implements Renderable
     protected static $collectedAssets = [];
 
     /**
-     * @var Form\Tab
+     * @var Tab
      */
     protected $tab = null;
 
@@ -132,13 +137,25 @@ class Form implements Renderable
      */
     protected $isSoftDeletes = false;
 
+    /**
+     * Show the footer fixed at the bottom of the screen.
+     *
+     * @var bool
+     */
     public $fixedFooter = true;
+
+    /**
+     * Overwrite the resource url if needed.
+     *
+     * @var string
+     */
+    public $resourceUrl = false;
 
     /**
      * Create a new form instance.
      *
-     * @param $model
-     * @param \Closure $callback
+     * @param         $model
+     * @param Closure $callback
      */
     public function __construct($model, Closure $callback = null)
     {
@@ -177,13 +194,17 @@ class Form implements Renderable
         $this->fields()->push($field);
         $this->layout->addField($field);
 
+        if (method_exists($field, 'initForForm')) {
+            $field->initForForm();
+        }
+
         return $this;
     }
 
     /**
-     * @return Model
+     * @return Model|\OpenAdmin\Admin\Actions\Interactor\Form
      */
-    public function model(): Model
+    public function model(): Model|Actions\Interactor\Form
     {
         return $this->model;
     }
@@ -355,7 +376,7 @@ class Form implements Renderable
         }
 
         DB::transaction(function () {
-            $inserts = $this->prepareInsert($this->updates);
+            $inserts = $this->prepareUpdate($this->updates);
 
             foreach ($inserts as $column => $value) {
                 $this->model->setAttribute($column, $value);
@@ -486,6 +507,7 @@ class Form implements Renderable
         }
 
         $this->relations = $this->getRelationInputs($this->inputs);
+        $this->getRelations(); // store relations field and
 
         $this->updates = Arr::except($this->inputs, array_keys($this->relations));
     }
@@ -550,14 +572,20 @@ class Form implements Renderable
         }
 
         /* @var Model $this ->model */
-        $builder = $this->model();
+        $model = $this->model();
 
         if ($this->isSoftDeletes) {
-            $builder = $builder->withTrashed();
+            $model = $model->withTrashed();
         }
 
-        $this->model = $builder->with($this->getRelations())->findOrFail($id);
+        $withRelations = $this->getRelations();
 
+        // prevent relation update for inline edits
+        if (!empty($data['_edit_inline'])) {
+            $withRelations = array_intersect($withRelations, array_keys($data));
+        }
+
+        $this->model = $model->with($withRelations)->findOrFail($id);
         $this->setFieldOriginalValue();
 
         // Handle validation errors.
@@ -573,17 +601,16 @@ class Form implements Renderable
             return $response;
         }
 
-        DB::transaction(function () {
+        DB::transaction(function () use ($withRelations) {
             $updates = $this->prepareUpdate($this->updates);
-
             foreach ($updates as $column => $value) {
                 /* @var Model $this ->model */
                 $this->model->setAttribute($column, $value);
             }
-
             $this->model->save();
-
-            $this->updateRelation($this->relations);
+            if (!empty($withRelations)) {
+                $this->updateRelation($this->relations);
+            }
         });
 
         if (($result = $this->callSaved()) instanceof Response) {
@@ -634,7 +661,10 @@ class Form implements Renderable
      */
     protected function redirectAfterSaving($resourcesPath, $key)
     {
-        if (request('after-save') == 'continue_editing') {
+        if (request('after-save-url')) {
+            // return to custom url
+            $url = urldecode(request('after-save-url'));
+        } elseif (request('after-save') == 'continue_editing') {
             // continue editing
             $url = rtrim($resourcesPath, '/')."/{$key}/edit";
         } elseif (request('after-save') == 'continue_creating') {
@@ -742,33 +772,34 @@ class Form implements Renderable
      *
      * @return void
      */
-    protected function updateRelation($relationsData)
+    protected function updateRelation($relationsData, $subRelation = [])
     {
-        // makes sure prepared values for relations can be passed
-        // for example MultiFile deletions / sortings
-        //echo "<pre>".print_r($relationsData, 1)."</pre>";
-        //echo "<pre>".print_r($this->relation_fields, 1)."</pre>";
-        //exit;
+        if (!empty($subRelation)) {
+            $relations_fields = $subRelation['relation_fields'];
+            $must_prepare     = $subRelation['must_prepare'] ?? [];
+            //$model            = $subRelation['model'];
+            $model = $subRelation['parent'];
+        } else {
+            $relations_fields = $this->relation_fields;
+            $must_prepare     = $this->must_prepare;
+            $model            = $this->model;
+        }
 
-        foreach ($this->relation_fields as $field) {
-            if (!isset($relationsData[$field]) && in_array($field, $this->must_prepare)) {
+        foreach ($relations_fields as $field) {
+            if (!isset($relationsData[$field]) && in_array($field, $must_prepare)) {
                 $relationsData[$field] = false;
             }
         }
 
         foreach ($relationsData as $name => $values) {
-            if (!method_exists($this->model, $name)) {
+            if (!method_exists($model, $name)) {
                 continue;
             }
 
-            $relation = $this->model->$name();
-
-            $oneToOneRelation = $relation instanceof Relations\HasOne
-                || $relation instanceof Relations\MorphOne
-                || $relation instanceof Relations\BelongsTo;
+            $relation = $model->$name();
 
             $isRelationUpdate = true;
-            $prepared         = $this->prepareUpdate([$name => $values], $oneToOneRelation, $isRelationUpdate);
+            $prepared         = $this->prepareUpdate([$name => $values], $isRelationUpdate, $subRelation);
 
             if (empty($prepared)) {
                 continue;
@@ -783,7 +814,7 @@ class Form implements Renderable
                     break;
                 case $relation instanceof Relations\HasOne:
                 case $relation instanceof Relations\MorphOne:
-                    $related = $this->model->getRelationValue($name) ?: $relation->getRelated();
+                    $related = $model->getRelationValue($name) ?: $relation->getRelated();
 
                     foreach ($prepared[$name] as $column => $value) {
                         $related->setAttribute($column, $value);
@@ -794,7 +825,7 @@ class Form implements Renderable
                     break;
                 case $relation instanceof Relations\BelongsTo:
                 case $relation instanceof Relations\MorphTo:
-                    $related = $this->model->getRelationValue($name) ?: $relation->getRelated();
+                    $related = $model->getRelationValue($name) ?: $relation->getRelated();
 
                     foreach ($prepared[$name] as $column => $value) {
                         $related->setAttribute($column, $value);
@@ -809,69 +840,150 @@ class Form implements Renderable
                 case $relation instanceof Relations\HasMany:
                 case $relation instanceof Relations\MorphMany:
                     if (!empty($prepared[$name])) {
-                        foreach ($prepared[$name] as $related) {
+                        foreach ($prepared[$name] as $relationValues) {
                             /** @var Relations\HasOneOrMany $relation */
-                            $relation = $this->model->$name();
+                            $relation = $model->$name();
 
                             $keyName = $relation->getRelated()->getKeyName();
+                            $key     = Arr::get($relationValues, $keyName);
 
                             /** @var Model $child */
-                            $child = $relation->findOrNew(Arr::get($related, $keyName));
+                            $child              = $relation->findOrNew($key);
+                            $fieldsWithRelation = $this->getSubRelationsField($name);
 
-                            if (Arr::get($related, static::REMOVE_FLAG_NAME) == 1) {
+                            if (Arr::get($relationValues, static::REMOVE_FLAG_NAME) == 1) {
                                 $child->delete();
                                 continue;
                             }
 
-                            Arr::forget($related, static::REMOVE_FLAG_NAME);
+                            Arr::forget($relationValues, static::REMOVE_FLAG_NAME);
+                            Arr::forget($relationValues, $fieldsWithRelation);
 
-                            $child->fill($related);
+                            if (!empty($relationValues)) {
+                                $child->fill($relationValues);
+                                $child->save();
+                            }
 
-                            $child->save();
+                            foreach ($fieldsWithRelation as $relationSubField) {
+                                // get the unprepared data
+                                if ($key) {
+                                    $subRelationsValues = [$relationSubField => Arr::get($relationsData[$name][$key], $relationSubField)];
+                                    $this->processSubRelations($child, $relation, $name, $relationSubField, $subRelationsValues);
+                                }
+                            }
                         }
                     }
                     break;
             }
         }
+        // dd("exit");
+        // if exist before end
+        // db transation will not run
+    }
+
+    public function getSubRelationsField($relationName)
+    {
+        $subRelations = array_filter($this->relation_fields, function ($relation) use ($relationName) {
+            return strpos($relation, $relationName.'.') !== false;
+        });
+
+        $subRelationFields = array_map(function ($subRelation) use ($relationName) {
+            return str_replace($relationName.'.', '', $subRelation);
+        }, $subRelations);
+
+        return array_values($subRelationFields);
+    }
+
+    protected function processSubRelations($parent, $relationModel, $relationName, $relationSubField, $subRelationsValues)
+    {
+        $subModel = $relationModel->getRelated()->$relationSubField()->getRelated();
+
+        if (!isset($subRelationsValues[$relationSubField])) {
+            return;
+        }
+        $this->updateRelation(
+            [$relationSubField => $subRelationsValues[$relationSubField]],
+            [
+                'parent'          => $parent,
+                'relation_name'   => $relationName.'.'.$relationSubField,
+                'relation_fields' => [$relationSubField],
+                'must_prepare'    => [],
+                'model'           => $subModel,
+            ]
+        );
     }
 
     /**
      * Prepare input data for update.
      *
      * @param array $updates
-     * @param bool  $oneToOneRelation If column is one-to-one relation.
+     * @param bool  $isRelationUpdate for skipping fields that have or dont have a relation
      *
      * @return array
      */
-    protected function prepareUpdate(array $updates, $oneToOneRelation = false, $isRelationUpdate = false): array
+    protected function prepareUpdate(array $updates, $isRelationUpdate = false, $subRelation = null): array
     {
         $prepared = [];
+        $fields   = $fields ?? $this->fields();
+
+        if ($subRelation) {
+            $fields = [$this->relations_fields_ref[$subRelation['relation_name']]];
+        }
 
         /** @var Field $field */
-        foreach ($this->fields() as $field) {
+        foreach ($fields as $field) {
             $columns = $field->column();
 
-            if ($this->isInvalidColumn($columns, $oneToOneRelation || $field->isJsonType)
-                || (in_array($columns, $this->relation_fields) && !$isRelationUpdate)) {
+            if (!$isRelationUpdate && (in_array($columns, $this->relation_fields) || $field->hasRelation())) {
+                // skip fields that have a relation
+                continue;
+            }
+
+            if ($isRelationUpdate && !(in_array($columns, $this->relation_fields) || $field->hasRelation() || $subRelation)) {
+                // skip fields that have not relation
                 continue;
             }
 
             $value = $this->getDataByColumn($updates, $columns);
             $value = $field->prepare($value);
 
+            if ($isRelationUpdate && method_exists($field, 'prepare_relation')) {
+                $value = $field->prepare_relation($value);
+            }
+
             // only process values if not false
             if ($value !== false) {
                 if (is_array($columns)) {
                     foreach ($columns as $name => $column) {
-                        Arr::set($prepared, $column, $value[$name]);
+                        $col_value = $value[$name];
+                        if (is_array($col_value)) {
+                            $col_value = $this->filterFalseValues($col_value);
+                        }
+                        Arr::set($prepared, $column, $col_value);
                     }
                 } elseif (is_string($columns)) {
+                    if (is_array($value)) {
+                        $value = $this->filterFalseValues($value);
+                    }
                     Arr::set($prepared, $columns, $value);
                 }
             }
         }
 
         return $prepared;
+    }
+
+    protected function filterFalseValues($value)
+    {
+        foreach ($value as &$row) {
+            if (is_array($row)) {
+                $row = array_filter($row, function ($val) {
+                    return $val !== false;
+                });
+            }
+        }
+
+        return $value;
     }
 
     /**
@@ -983,6 +1095,7 @@ class Form implements Renderable
 
             return $value;
         }
+
         // if not found return false
         // false values won't be save
         return false;
@@ -995,9 +1108,11 @@ class Form implements Renderable
      *
      * @return mixed
      */
-    protected function getFieldByColumn($column)
+    protected function getFieldByColumn($column, $form = null)
     {
-        return $this->fields()->first(
+        $form = $form ?? $this;
+
+        return $form->fields()->first(
             function (Field $field) use ($column) {
                 if (is_array($field->column())) {
                     return in_array($column, $field->column());
@@ -1006,6 +1121,31 @@ class Form implements Renderable
                 return $field->column() == $column;
             }
         );
+    }
+
+    /**
+     * Find field object by column.
+     *
+     * @param $column
+     *
+     * @return mixed
+     */
+    public function callFieldByColumn($column, Closure $callback)
+    {
+        $this->fields()->each(function (Field $field) use ($column, $callback) {
+            if (is_array($field->column())) {
+                if (in_array($column, $field->column())) {
+                    $callback($field);
+
+                    return;
+                }
+            }
+            if ($field->column() == $column) {
+                $callback($field);
+
+                return;
+            }
+        });
     }
 
     /**
@@ -1033,13 +1173,13 @@ class Form implements Renderable
     {
         $relations = $this->getRelations();
 
-        $builder = $this->model();
+        $model = $this->model();
 
         if ($this->isSoftDeletes) {
-            $builder = $builder->withTrashed();
+            $model = $model->withTrashed();
         }
 
-        $this->model = $builder->with($relations)->findOrFail($id);
+        $this->model = $model->with($relations)->findOrFail($id);
 
         $this->callEditing();
 
@@ -1122,12 +1262,16 @@ class Form implements Renderable
      *
      * @return array
      */
-    public function getRelations(): array
+    public function getRelations($form = null, $prefix = ''): array
     {
-        $relations = $columns = [];
+        $relations = $columns = $checkRelations = [];
+        $form      = $form ?? $this;
 
-        /** @var Field $field */
-        foreach ($this->fields() as $field) {
+        /* @var Field $field */
+        foreach ($form->fields() as $field) {
+            if ($field->hasRelation()) {
+                $checkRelations[$field->column()] = $field;
+            }
             $columns[] = $field->column();
         }
 
@@ -1135,16 +1279,28 @@ class Form implements Renderable
             if (Str::contains($column, '.')) {
                 list($relation) = explode('.', $column);
 
-                if (method_exists($this->model, $relation)
+                if (method_exists($form->model, $relation)
                     && !method_exists(Model::class, $relation)
-                    && $this->model->$relation() instanceof Relations\Relation
+                    && $form->model->$relation() instanceof Relations\Relation
                 ) {
-                    $relations[] = $relation;
+                    $relations[] = $prefix.$relation;
                 }
-            } elseif (method_exists($this->model, $column)
-                && !method_exists(Model::class, $column)
-            ) {
-                $relations[] = $column;
+            } elseif (method_exists($form->model, $column) && !method_exists(Model::class, $column)) {
+                $relations[] = $prefix.$column;
+
+                $this->relations_fields_ref[$prefix.$column] = $this->getFieldByColumn($column, $form);
+
+                if (isset($checkRelations[$column])) {
+                    $field = $checkRelations[$column];
+
+                    if ($field instanceof HasMany) {
+                        $sub_model = $form->model->{$column}()->getRelated();
+                        $sub_form  = $field->getNestedForm($sub_model);
+
+                        $sub_relations = $this->getRelations($sub_form, $prefix.$column.'.');
+                        $relations     = array_merge($relations, $sub_relations);
+                    }
+                }
             }
         }
 
@@ -1183,6 +1339,40 @@ class Form implements Renderable
         });
 
         $this->builder()->setWidth($fieldWidth, $labelWidth);
+
+        return $this;
+    }
+
+    /**
+     * Set field prefix for current form fields.
+     *
+     * @param string $prefix
+     *
+     * @return $this
+     */
+    public function setFieldsPrependClass($prefix): self
+    {
+        $this->fields()->each(function ($field) use ($prefix) {
+            /* @var Field $field  */
+            $field->setPrependElementClass([$prefix]);
+        });
+
+        return $this;
+    }
+
+    /**
+     * Set field appendix for current form fields.
+     *
+     * @param int $appendix
+     *
+     * @return $this
+     */
+    public function setFieldsAppendClass($suffix): self
+    {
+        $this->fields()->each(function ($field) use ($suffix) {
+            /* @var Field $field  */
+            $field->setAppendElementClass([$suffix]);
+        });
 
         return $this;
     }
@@ -1379,7 +1569,7 @@ class Form implements Renderable
      *
      * @param Closure $callback
      *
-     * @return \OpenAdmin\Admin\Form\Footer
+     * @return Form\Footer
      */
     public function footer(Closure $callback = null)
     {
@@ -1399,13 +1589,28 @@ class Form implements Renderable
      */
     public function resource($slice = -2): string
     {
-        $segments = explode('/', trim(\request()->getUri(), '/'));
+        $url      = !empty($this->resourceUrl) ? trim($this->resourceUrl) : trim(\request()->getUri(), '/');
+        $segments = explode('/', $url);
 
         if ($slice !== 0) {
             $segments = array_slice($segments, 0, $slice);
         }
 
         return implode('/', $segments);
+    }
+
+    /**
+     * Get set the name of the current resource url (without /admin/).
+     *
+     * @param string $path
+     *
+     * @return Form
+     */
+    public function setResourcePath($path)
+    {
+        $this->resourceUrl = admin_url($path);
+
+        return $this;
     }
 
     /**
@@ -1442,8 +1647,8 @@ class Form implements Renderable
     /**
      * Add a new layout column.
      *
-     * @param int      $width
-     * @param \Closure $closure
+     * @param int     $width
+     * @param Closure $closure
      *
      * @return $this
      */

@@ -5,8 +5,11 @@ namespace OpenAdmin\Admin\Form;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use OpenAdmin\Admin\Admin;
 use OpenAdmin\Admin\Form;
+use OpenAdmin\Admin\Form\Concerns\HasFormFlags;
+use OpenAdmin\Admin\Form\Field\Traits\HasUniqueId;
 use OpenAdmin\Admin\Widgets\Form as WidgetForm;
 
 /**
@@ -54,11 +57,8 @@ use OpenAdmin\Admin\Widgets\Form as WidgetForm;
  */
 class NestedForm
 {
-    public const DEFAULT_KEY_NAME = '__LA_KEY__';
-
-    public const REMOVE_FLAG_NAME = '_remove_';
-
-    public const REMOVE_FLAG_CLASS = 'fom-removed';
+    use HasFormFlags;
+    use HasUniqueId;
 
     /**
      * @var mixed
@@ -68,14 +68,31 @@ class NestedForm
     /**
      * @var string
      */
+    protected $foreignKey;
+
+    /**
+     * @var string
+     */
     protected $relationName;
+
+    /**
+     * @var string
+     */
+    protected $relationPath;
 
     /**
      * NestedForm key.
      *
      * @var Model
      */
-    protected $model;
+    public $model;
+
+    /**
+     * Model data.
+     *
+     * @var array
+     */
+    public $modelData = null;
 
     /**
      * Fields in form.
@@ -102,6 +119,11 @@ class NestedForm
     protected $save_null_values = true;
 
     /**
+     * @var bool
+     */
+    protected $json = false;
+
+    /**
      * Create a new NestedForm instance.
      *
      * NestedForm constructor.
@@ -109,11 +131,12 @@ class NestedForm
      * @param string $relation
      * @param Model  $model
      */
-    public function __construct($relation, $model = null)
+    public function __construct($relation, $model = null, $relationPath = '')
     {
         $this->relationName = $relation;
-
-        $this->model = $model;
+        $this->relationPath = $relationPath;
+        $this->model        = $model;
+        $this->uniqueId     = $this->uniqueId(10);
 
         $this->fields = new Collection();
     }
@@ -129,6 +152,26 @@ class NestedForm
     }
 
     /**
+     * set Foreign key.
+     *
+     * @return string
+     */
+    public function setForeignKey(string $foreignKey)
+    {
+        $this->foreignKey = $foreignKey;
+    }
+
+    /**
+     * set Foreign key.
+     *
+     * @return string
+     */
+    public function getForeignKey()
+    {
+        return $this->foreignKey;
+    }
+
+    /**
      * Save null values or not.
      *
      * @param bool $set
@@ -138,6 +181,20 @@ class NestedForm
     public function saveNullValues($set = true)
     {
         $this->save_null_values = $set;
+
+        return $this;
+    }
+
+    /**
+     * Handle as json form.
+     *
+     * @param bool $set
+     *
+     * @return $this
+     */
+    public function setJson($set = true)
+    {
+        $this->json = $set;
 
         return $this;
     }
@@ -161,7 +218,7 @@ class NestedForm
             return $key;
         }
 
-        return 'new_'.static::DEFAULT_KEY_NAME;
+        return static::NEW_KEY_NAME.static::DEFAULT_KEY_NAME;
     }
 
     /**
@@ -253,8 +310,9 @@ class NestedForm
      */
     public function prepare($input)
     {
-        if (!empty($input)) {
+        if (!empty($input) && is_array($input)) {
             foreach ($input as $key => $record) {
+                $this->setRequestFieldKeys($key);
                 $this->setFieldOriginalValue($key);
                 $input[$key] = $this->prepareRecord($record);
             }
@@ -283,6 +341,30 @@ class NestedForm
     }
 
     /**
+     * Set request field name and key.
+     *
+     * @param string $key
+     *
+     * @return void
+     */
+    protected function setRequestFieldKeys($key)
+    {
+        $relationName = $this->relationName;
+        $this->fields->each(function (Field $field) use ($key, $relationName) {
+            $column = $field->column();
+            if (is_array($column)) {
+                $fieldKey = [];
+                foreach ($column as $col) {
+                    $fieldKey[] = $relationName.'.'.$key.'.'.$col;
+                }
+            } else {
+                $fieldKey = $relationName.'.'.$key.'.'.$column;
+            }
+            $field->setRequestFieldKey($fieldKey);
+        });
+    }
+
+    /**
      * Do prepare work before store and update.
      *
      * @param array $record
@@ -291,7 +373,7 @@ class NestedForm
      */
     protected function prepareRecord($record)
     {
-        if ($record[static::REMOVE_FLAG_NAME] == 1) {
+        if (!empty($record[static::REMOVE_FLAG_NAME]) && $record[static::REMOVE_FLAG_NAME] == 1) {
             return $record;
         }
 
@@ -311,7 +393,11 @@ class NestedForm
                 $value = $field->prepare($value);
             }
 
-            if (($field instanceof \OpenAdmin\Admin\Form\Field\Hidden) || $value != $field->original() || ($this->save_null_values && $value == null)) {
+            if (
+                ($field instanceof Field\Hidden)
+                || ($value != $field->original() || $this->json)  // keep fields if original is the same otherwise values gets lost
+                || ($this->save_null_values && $value == null)
+            ) {
                 if (is_array($columns)) {
                     foreach ($columns as $name => $column) {
                         Arr::set($prepared, $column, $value[$name]);
@@ -322,7 +408,7 @@ class NestedForm
             }
         }
 
-        $prepared[static::REMOVE_FLAG_NAME] = $record[static::REMOVE_FLAG_NAME];
+        $prepared[static::REMOVE_FLAG_NAME] = $record[static::REMOVE_FLAG_NAME] ?? null;
 
         return $prepared;
     }
@@ -432,18 +518,28 @@ class NestedForm
 
         $elementName = $elementClass = $errorKey = [];
 
-        $key = $this->getKey();
+        $key     = $this->getKey();
+        $ref_key = is_numeric($key) ? $this->relationName.'_'.$key : $key;
 
         if (is_array($column)) {
             foreach ($column as $k => $name) {
                 $errorKey[$k]     = sprintf('%s.%s.%s', $this->relationName, $key, $name);
                 $elementName[$k]  = sprintf('%s[%s][%s]', $this->relationName, $key, $name);
-                $elementClass[$k] = [$this->relationName, $name];
+                $elementClass[$k] = [$this->uniqueId, $this->relationName, $ref_key, $name];
             }
         } else {
-            $errorKey     = sprintf('%s.%s.%s', $this->relationName, $key, $column);
-            $elementName  = sprintf('%s[%s][%s]', $this->relationName, $key, $column);
-            $elementClass = [$this->relationName, $column];
+            if (Str::contains($this->relationPath, '.')) {
+                $parent_key = $this->model->{$this->foreignKey} ?? self::PARENT_KEY_NAME;
+
+                $parts        = explode('.', $this->relationPath);
+                $errorKey     = sprintf('%s.%s.%s.%s.%s', $parts[0], $parent_key, $parts[1], $key, $column);
+                $elementName  = sprintf('%s[%s][%s][%s][%s]', $parts[0], $parent_key, $parts[1], $key, $column);
+                $elementClass = [$this->uniqueId, str_replace('.', ' ', $this->relationPath), $ref_key, $column];
+            } else {
+                $errorKey     = sprintf('%s.%s.%s', $this->relationName, $key, $column);
+                $elementName  = sprintf('%s[%s][%s]', $this->relationName, $key, $column);
+                $elementClass = [$this->uniqueId, $this->relationName, $ref_key, $column];
+            }
         }
 
         return $field->setErrorKey($errorKey)
@@ -464,8 +560,14 @@ class NestedForm
         if ($className = Form::findFieldClass($method)) {
             $column = Arr::get($arguments, 0, '');
 
-            /* @var Field $field */
-            $field = new $className($column, array_slice($arguments, 1));
+            if (Form::isRelationField($method)) {
+                $relationPath = $this->relationName.'.'.$column;
+                /* @var Field $field */
+                $field = new $className($column, array_slice($arguments, 1), $relationPath);
+            } else {
+                /* @var Field $field */
+                $field = new $className($column, array_slice($arguments, 1));
+            }
 
             if ($this->form instanceof WidgetForm) {
                 $field->setWidgetForm($this->form);

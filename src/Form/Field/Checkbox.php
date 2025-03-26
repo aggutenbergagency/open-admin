@@ -2,6 +2,7 @@
 
 namespace OpenAdmin\Admin\Form\Field;
 
+use Admin;
 use Illuminate\Contracts\Support\Arrayable;
 
 class Checkbox extends MultipleSelect
@@ -77,15 +78,49 @@ class Checkbox extends MultipleSelect
         return $this;
     }
 
+    public function script()
+    {
+        $var_name             = $this->getVariableName();
+        $elementClassSelector = $this->getElementClassSelector();
+        $requireMessage       = $this->validationMessages['required'] ?? 'This field is required';
+
+        if ($this->stacked && in_array('required', $this->rules)) {
+            $script = <<<JS
+
+            function {$var_name}_check_stacked(){
+                if ( document.querySelectorAll("{$elementClassSelector}:checked").length == 0){
+                    document.querySelectorAll("{$elementClassSelector}").forEach((rel)=>{
+                        rel.setCustomValidity("{$requireMessage}");
+                    })
+                }else{
+                    document.querySelectorAll("{$elementClassSelector}").forEach((rel)=>{
+                        rel.setCustomValidity("");
+                        rel.removeAttribute("required");
+                    })
+                }
+            };
+            document.querySelectorAll("{$elementClassSelector}").forEach((el)=>{
+                el.addEventListener('change', function(e) {
+                    {$var_name}_check_stacked();
+                })
+            });
+            {$var_name}_check_stacked();
+        JS;
+            Admin::script($script);
+        }
+    }
+
     /**
-     * {@inheritdoc}
+     * @inheritdoc
      */
     public function render()
     {
         $this->addVariables([
-            'checked'      => $this->checked,
-            'stacked'      => $this->stacked,
+            'checked' => $this->checked,
+            'stacked' => $this->stacked,
         ]);
+
+        $this->script();
 
         return parent::render();
     }

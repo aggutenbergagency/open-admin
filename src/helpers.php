@@ -72,9 +72,73 @@ if (!function_exists('admin_toastr')) {
      */
     function admin_toastr($message = '', $type = 'success', $options = [])
     {
-        $toastr = new MessageBag(get_defined_vars());
+        if (session()->has('toastr')) {
+            $toastr = session()->pull('toastr');
+        } else {
+            $toastr = [];
+        }
+        $toastr[] = new MessageBag(get_defined_vars());
 
         session()->flash('toastr', $toastr);
+    }
+}
+
+if (!function_exists('admin_toastr_script')) {
+    /**
+     * Flash a toastr message bag to session.
+     *
+     * @param string $message
+     * @param string $type
+     * @param array  $options
+     */
+    function admin_toast_from_bag($bag)
+    {
+        $type    = \Illuminate\Support\Arr::get($bag->get('type'), 0, 'success');
+        $message = \Illuminate\Support\Arr::get($bag->get('message'), 0, '');
+        $options = $bag->get('options', []);
+
+        $defaults    = config('admin.toastr_config', []);
+        $options     = array_merge($defaults, $options);
+        $options_str = json_encode($options);
+
+        return <<<JS
+            admin.toastr.{$type}('{$message}', {$options_str});
+        JS;
+    }
+
+    function admin_toastr_script()
+    {
+        $toasts_js = '';
+        $toastr    = session()->pull('toastr');
+
+        foreach ($toastr as $bag) {
+            $toasts_js .= admin_toast_from_bag($bag);
+        }
+
+        echo <<<JS
+            <script>
+                {$toasts_js}
+            </script>
+            JS;
+    }
+}
+
+if (!function_exists('admin_flashjs')) {
+    /**
+     * Flash a javascript on the following page.
+     *
+     * @param string $flashjs
+     */
+    function admin_flashjs($add_flashjs = '')
+    {
+        if (session()->has('flashjs')) {
+            $flashjs = session()->pull('flashjs');
+        } else {
+            $flashjs = '';
+        }
+        $flashjs .= $add_flashjs;
+
+        session()->flash('flashjs', $flashjs);
     }
 }
 
@@ -190,7 +254,7 @@ if (!function_exists('class_uses_deep')) {
     /**
      * To get ALL traits including those used by parent classes and other traits.
      *
-     * @param $class
+     * @param      $class
      * @param bool $autoload
      *
      * @return array
@@ -269,18 +333,18 @@ if (!function_exists('prepare_options')) {
      */
     function prepare_options(array $options)
     {
-        $original = [];
+        $original  = [];
         $toReplace = [];
 
         foreach ($options as $key => &$value) {
             if (is_array($value)) {
-                $subArray = prepare_options($value);
-                $value = $subArray['options'];
-                $original = array_merge($original, $subArray['original']);
+                $subArray  = prepare_options($value);
+                $value     = $subArray['options'];
+                $original  = array_merge($original, $subArray['original']);
                 $toReplace = array_merge($toReplace, $subArray['toReplace']);
             } elseif (strpos($value, 'function(') === 0) {
-                $original[] = $value;
-                $value = "%{$key}%";
+                $original[]  = $value;
+                $value       = "%{$key}%";
                 $toReplace[] = "\"{$value}\"";
             }
         }
@@ -311,5 +375,16 @@ if (!function_exists('admin_get_route')) {
     function admin_get_route(string $name): string
     {
         return config('admin.route.prefix').'.'.$name;
+    }
+}
+
+if (!function_exists('array_is_list')) {
+    function array_is_list(array $arr)
+    {
+        if ($arr === []) {
+            return true;
+        }
+
+        return array_keys($arr) === range(0, count($arr) - 1);
     }
 }

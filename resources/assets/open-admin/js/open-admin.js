@@ -9,6 +9,7 @@ admin.pages = {}; // shared logic for pages
 admin.form = {}; // form in page
 admin.grid = {}; // grid / lister
 admin.action = {}; // actions
+admin.cleanup = {}; // cleanup
 
 document.addEventListener('DOMContentLoaded', function () {
     admin.init();
@@ -27,24 +28,50 @@ admin.init = function () {
 admin.menu = {
     init: function () {
         let menuToggle = document.getElementById('menu-toggle');
+        let sidebar = document.getElementById("sidebar");
+        let bodyClasses = document.body.classList;
 
         menuToggle.addEventListener('click', function () {
-            if (!document.body.classList.contains('side-menu-closed')) {
+            if (!bodyClasses.contains('side-menu-closed')) {
                 admin.menu.close();
             }
 
             if (window.innerWidth < 576) {
-                document.body.classList.toggle('side-menu-open');
-                document.body.classList.remove('side-menu-closed');
+                bodyClasses.toggle('side-menu-open');
+                bodyClasses.remove('side-menu-closed');
             } else {
-                document.body.classList.toggle('side-menu-closed');
-                document.body.classList.remove('side-menu-open');
+                bodyClasses.toggle('side-menu-closed');
+                bodyClasses.remove('side-menu-open');
+            }
+
+            if (bodyClasses.contains('sidebar-collapse-open')) {
+                bodyClasses.add('sidebar-collapse');
+                bodyClasses.remove('sidebar-collapse-open');
+            } else if (bodyClasses.contains('sidebar-collapse')) {
+                bodyClasses.remove('sidebar-collapse');
+                bodyClasses.add('sidebar-collapse-open');
             }
         });
 
+        sidebar.addEventListener("mouseover", function () {
+            if (bodyClasses.contains('sidebar-collapse') && bodyClasses.contains('side-menu-closed')) {
+                bodyClasses.remove('side-menu-closed');
+            }
+        });
+
+        sidebar.addEventListener("mouseout", function () {
+            if (bodyClasses.contains('sidebar-collapse') && !bodyClasses.contains('side-menu-closed')) {
+                bodyClasses.add('side-menu-closed');
+            }
+        });
+
+        if (bodyClasses.contains('sidebar-mini')) {
+            bodyClasses.add('side-menu-closed');
+        }
+
         window.addEventListener('resize', function () {
             if (window.innerWidth < 576) {
-                document.body.classList.remove('side-menu-closed');
+                bodyClasses.remove('side-menu-closed');
             }
         });
 
@@ -169,7 +196,7 @@ admin.menu = {
             let li = a.parentNode;
             li.classList.remove('active');
             a.blur();
-            if (a.attributes['href'].value === url) {
+            if (a?.attributes['href']?.value === url) {
                 let parent = li.parentNode;
 
                 if (!parent.classList.contains('show')) {
@@ -194,6 +221,8 @@ let preventPopState;
 
 admin.ajax = {
     currenTarget: false,
+    lastRequst: false,
+
     defaults: {
         headers: { 'X-PJAX': true, 'X-PJAX-CONTAINER': '#pjax-container', 'X-Requested-With': 'XMLHttpRequest', Accept: 'text/html, application/json, text/plain, */*' },
         method: 'get',
@@ -215,8 +244,21 @@ admin.ajax = {
                     let url = a.getAttribute('href');
 
                     if (url.charAt(0) !== '#' && url.substring(0, 11) !== 'javascript:' && url !== '' && !a.classList.contains('no-ajax') && a.getAttribute('target') !== '_blank') {
-                        preventPopState = false;
-                        admin.ajax.navigate(url, preventPopState);
+                        if (a.getAttribute('target') === '_modal') {
+                            var modal_elm = document.querySelector(a.dataset.modal);
+                            var modal = new bootstrap.Modal(modal_elm);
+                            modal.show();
+                            admin.ajax.get(url, {}, function (data) {
+                                modal_elm.querySelector('.modal-body').innerHTML = data.data;
+                                if (a.dataset.modalInit) {
+                                    window[a.dataset.modalInit]();
+                                }
+                            });
+                        } else {
+                            preventPopState = false;
+                            admin.ajax.navigate(url, preventPopState);
+                        }
+
                         event.preventDefault();
                     }
                 }
@@ -276,6 +318,7 @@ admin.ajax = {
 
         obj.url = url;
         let axios_obj = merge_default(this.defaults, obj);
+        admin.ajax.lastRequst = axios_obj;
 
         axios(axios_obj)
             .then(function (response) {
@@ -307,13 +350,13 @@ admin.ajax = {
     },
 
     /*
-            NOTICE: axios automatically converts data to json string if its an object.
-            also NOTE: axios.delete doesn't support _POST data. (dont use formData in combination with delete, just grab the vars from the json payload from the request)
-            to send application/x-www-form-urlencoded data use formData object:
+        NOTICE: axios automatically converts data to json string if its an object.
+        also NOTE: axios.delete doesn't support _POST data. (dont use formData in combination with delete, just grab the vars from the json payload from the request)
+        to send application/x-www-form-urlencoded data use formData object:
 
-            const formData = new FormData();
-            formData.append('name', value);
-         */
+        const formData = new FormData();
+        formData.append('name', value);
+    */
     post: function (url, data, result_function) {
         let obj = {
             method: 'post',
@@ -361,7 +404,7 @@ admin.ajax = {
                 script.src = src;
                 document.getElementById('app').appendChild(script);
             } else {
-                eval(script.innerText);
+                admin.scripts.run(script.innerText);
             }
         });
 
@@ -384,11 +427,24 @@ admin.ajax = {
             console.log(error.request);
         } else {
             // Something happened in setting up the request that triggered an Error
-            console.log('An error has accurred:');
+            console.log('An error has occurred while fetching:', admin.ajax.lastRequst);
             console.log(error);
         }
     },
 };
+
+admin.scripts = {
+
+    run: function (strscript) {
+        try {
+            strscript = strscript.trim();
+            new Function(strscript)();
+        } catch (error) {
+            console.log(error);
+            throw new Error("Error running script:" + strscript);
+        }
+    }
+}
 
 admin.pages = {
     init: function () {
@@ -424,8 +480,27 @@ admin.pages = {
     },
 };
 
+admin.cleanup = {
+    cleanupCalls: [],
+
+    add: function (callback) {
+        this.cleanupCalls.push(callback)
+    },
+
+    now: function () {
+
+        for (i in this.cleanupCalls) {
+            func = this.cleanupCalls[i]
+            func.apply(this)
+        }
+        document.querySelectorAll('.flatpickr-calendar').forEach((cal) => {
+            cal.remove();
+        });
+
+        this.cleanupCalls = [];
+    }
+
+}
 admin.collectGarbage = function () {
-    document.querySelectorAll('.flatpickr-calendar').forEach((cal) => {
-        cal.remove();
-    });
+    admin.cleanup.now()
 };

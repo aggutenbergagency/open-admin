@@ -36,7 +36,6 @@
             },
             returnValue : function(trigger,content){
                 let field = content.querySelector('input:checked');
-                console.log(field);
                 return  {'val':field.value,'label':field.dataset.label}
             }
         }

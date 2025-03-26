@@ -2,13 +2,15 @@
 
 namespace OpenAdmin\Admin\Controllers;
 
-use Illuminate\Support\Facades\Hash;
+use OpenAdmin\Admin\Controllers\Traits\AdminUserHelpers;
 use OpenAdmin\Admin\Form;
 use OpenAdmin\Admin\Grid;
 use OpenAdmin\Admin\Show;
 
 class UserController extends AdminController
 {
+    use AdminUserHelpers;
+
     /**
      * {@inheritdoc}
      */
@@ -85,13 +87,13 @@ class UserController extends AdminController
      */
     public function form()
     {
-        $userModel = config('admin.database.users_model');
+        $userModel       = config('admin.database.users_model');
         $permissionModel = config('admin.database.permissions_model');
-        $roleModel = config('admin.database.roles_model');
+        $roleModel       = config('admin.database.roles_model');
 
         $form = new Form(new $userModel());
 
-        $userTable = config('admin.database.users_table');
+        $userTable  = config('admin.database.users_table');
         $connection = config('admin.database.connection');
 
         $form->display('id', 'ID');
@@ -116,9 +118,11 @@ class UserController extends AdminController
         $form->display('updated_at', trans('admin.updated_at'));
 
         $form->saving(function (Form $form) {
-            if ($form->password && $form->model()->password != $form->password) {
-                $form->password = Hash::make($form->password);
-            }
+            $this->handlePassword($form);
+        });
+
+        $form->saved(function (Form $form) {
+            $this->showNewHeaderAvatar($form);
         });
 
         return $form;

@@ -23,9 +23,9 @@ class MultipleFile extends Field
     ];
 
     public $must_prepare = true;
-    public $type = 'file';
-    public $readonly = false;
-    public $multiple = true;
+    public $type         = 'file';
+    public $readonly     = false;
+    public $multiple     = true;
 
     /**
      * Create a new File instance.
@@ -52,7 +52,7 @@ class MultipleFile extends Field
     }
 
     /**
-     * {@inheritdoc}
+     * @inheritdoc
      */
     public function getValidator(array $input)
     {
@@ -156,7 +156,8 @@ class MultipleFile extends Field
      */
     public function prepare($files)
     {
-        $delete_key = $this->column.Field::FILE_DELETE_FLAG;
+        $delete_key = $this->getRequestFieldKey().Field::FILE_DELETE_FLAG;
+
         $updated_files = false;
         if (request()->has($delete_key)) {
             if ($this->pathColumn) {
@@ -166,11 +167,11 @@ class MultipleFile extends Field
             }
         }
 
-        if (!empty($this->picker) && request()->has($this->column.Field::FILE_ADD_FLAG)) {
-            $updated_files = $this->addFiles(request($this->column.Field::FILE_ADD_FLAG), $updated_files);
+        if (!empty($this->picker) && request()->has($this->getRequestFieldKey().Field::FILE_ADD_FLAG)) {
+            $updated_files = $this->addFiles(request($this->getRequestFieldKey().Field::FILE_ADD_FLAG), $updated_files);
         }
 
-        $sort_key = $this->column.static::FILE_SORT_FLAG;
+        $sort_key = $this->getRequestFieldKey().static::FILE_SORT_FLAG;
         if (request()->has($sort_key)) {
             if ($this->sortColumn) {
                 $updated_files = $this->sortFilesFromHasMany(request($sort_key), $updated_files);
@@ -199,6 +200,10 @@ class MultipleFile extends Field
             }
 
             $updated_files = array_merge($updated_files, $targets);
+        }
+
+        if (!$updated_files) {
+            return $this->original();
         }
 
         return $updated_files;
@@ -297,7 +302,7 @@ class MultipleFile extends Field
         foreach ($files as $index => $file) {
             if (is_array($file) && $this->pathColumn) {
                 $index = Arr::get($file, $this->getRelatedKeyName(), $index);
-                $file = Arr::get($file, $this->pathColumn);
+                $file  = Arr::get($file, $this->pathColumn);
             }
 
             $preview = array_merge([
@@ -418,7 +423,7 @@ class MultipleFile extends Field
         }
 
         foreach ($files as $key => $file_obj) {
-            $file = $file_obj[$this->pathColumn];
+            $file                           = $file_obj[$this->pathColumn];
             $files[$key][$this->sortColumn] = array_search($file, $order);
         }
 
@@ -449,8 +454,8 @@ class MultipleFile extends Field
         $this->setType();
         $this->attribute('id', $id);
         $this->options['storageUrl'] = $this->storageUrl();
-        $json_options = json_encode($this->options);
-        $this->script = <<<JS
+        $json_options                = json_encode($this->options);
+        $this->script                = <<<JS
         var FileUpload_{$id} = new FileUpload(document.querySelector('#{$id}'),{$json_options});
         JS;
     }

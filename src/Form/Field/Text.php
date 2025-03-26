@@ -71,9 +71,7 @@ class Text extends Field
      */
     public function inputmask($options)
     {
-        $options = json_encode_options($options);
-
-        //$this->script = "$('{$this->getElementClassSelector()}').inputmask($options);";
+        $options      = json_encode_options($options);
         $this->script = "Inputmask({$options}).mask(document.querySelector(\"{$this->getElementClassSelector()}\"));";
 
         return $this;

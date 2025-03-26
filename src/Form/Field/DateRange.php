@@ -31,12 +31,12 @@ class DateRange extends Field
     public function __construct($column, $arguments)
     {
         $this->column['start'] = $column;
-        $this->column['end'] = $arguments[0];
+        $this->column['end']   = $arguments[0];
 
         array_shift($arguments);
 
         $this->label = $this->formatLabel($arguments);
-        $this->id = $this->formatId($this->column);
+        $this->id    = $this->formatId($this->column);
 
         $this->options(['format' => $this->format]);
     }
@@ -67,21 +67,21 @@ class DateRange extends Field
 
     public function render()
     {
-        $this->options = array_merge($this->defaults, $this->options);
-        $this->options['format'] = $this->format;
-        $this->options['locale'] = array_key_exists('locale', $this->options) ? $this->options['locale'] : config('app.locale');
+        $this->options                     = array_merge($this->defaults, $this->options);
+        $this->options['format']           = $this->format;
+        $this->options['locale']           = array_key_exists('locale', $this->options) ? $this->options['locale'] : config('app.locale');
         $this->options['allowInputToggle'] = true;
-        $this->options['plugins'] = '__replace_me__';
+        $this->options['plugins']          = '__replace_me__';
 
         $this->check_format_options();
 
         $options_start = json_encode($this->options);
-        $options_start = str_replace('"__replace_me__"', '[new rangePlugin({ input: "'.$this->getElementClassSelector()['end'].'"})]', $options_start);
+        $options_start = str_replace('"__replace_me__"', '[new rangePlugin({ input: document.querySelector("'.$this->getElementClassSelector()['end'].'")})]', $options_start);
 
         //$options_end = json_encode($this->options);
 
         $this->script = <<<EOT
-            flatpickr('{$this->getElementClassSelector()['start']}',{$options_start});
+            flatpickr(document.querySelector('{$this->getElementClassSelector()['start']}'),{$options_start});
 
         EOT;
 

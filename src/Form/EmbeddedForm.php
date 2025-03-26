@@ -159,9 +159,11 @@ class EmbeddedForm
      */
     public function prepare($input)
     {
-        foreach ($input as $key => $record) {
-            $this->setFieldOriginalValue($key);
-            $input[$key] = $this->prepareValue($key, $record);
+        if (!empty($input) && is_array($input)) {
+            foreach ($input as $key => $record) {
+                $this->setFieldOriginalValue($key);
+                $input[$key] = $this->prepareValue($key, $record);
+            }
         }
 
         return $input;
@@ -237,13 +239,13 @@ class EmbeddedForm
 
         if (is_array($jsonKey)) {
             foreach ($jsonKey as $index => $name) {
-                $elementName[$index] = "{$this->column}[$name]";
-                $errorKey[$index] = "{$this->column}.$name";
+                $elementName[$index]  = "{$this->column}[$name]";
+                $errorKey[$index]     = "{$this->column}.$name";
                 $elementClass[$index] = "{$this->column}_$name";
             }
         } else {
-            $elementName = "{$this->column}[$jsonKey]";
-            $errorKey = "{$this->column}.$jsonKey";
+            $elementName  = "{$this->column}[$jsonKey]";
+            $errorKey     = "{$this->column}.$jsonKey";
             $elementClass = "{$this->column}_$jsonKey";
         }
 

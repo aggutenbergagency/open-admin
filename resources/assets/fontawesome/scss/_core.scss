@@ -1,7 +1,7 @@
 // Base Class Definition
 // -------------------------
 
-.#{$fa-css-prefix},
+.#{$fa-css-prefix}:not(.form-group),
 .fas,
 .far,
 .fal,

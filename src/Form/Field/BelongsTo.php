@@ -8,8 +8,8 @@ class BelongsTo extends Select
 {
     use BelongsToRelation;
 
-    protected $relation_prefix = 'belongsto-';
-    protected $relation_type = 'one';
+    protected $relation_prefix = 'belongsto';
+    protected $relation_type   = 'one';
 
     protected function getOptions()
     {

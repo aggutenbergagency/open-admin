@@ -3,6 +3,8 @@
 namespace OpenAdmin\Admin\Console;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 use Illuminate\Database\MySqlConnection;
 use PDO;
@@ -18,6 +20,7 @@ class ResourceGenerator
      * @var Model
      */
     protected $model;
+    private $useDoctine = true;
 
     /**
      * @var array
@@ -61,6 +64,10 @@ class ResourceGenerator
     public function __construct($model)
     {
         $this->model = $this->getModel($model);
+
+        if (explode('.', $this->model->getTable())[0] >= 11) {
+            $this->useDoctine = false;
+        }
     }
 
     /**
@@ -90,12 +97,17 @@ class ResourceGenerator
 
         $output = '';
 
+        $table = $this->model->getTable();
         foreach ($this->getTableColumns() as $column) {
             $name = $column->getName();
             if (in_array($name, $reservedColumns)) {
                 continue;
             }
-            $type = $column->getType()->getName();
+            if ($this->useDoctine) {
+                $type = $column->getType()->getName();
+            } else {
+                $type = Schema::getColumnType($table, $name);
+            }
             $default = $column->getDefault();
 
             $defaultValue = '';
@@ -109,7 +121,7 @@ class ResourceGenerator
                 case 'json':
                 case 'array':
                 case 'object':
-                    $fieldType = 'text';
+                    $fieldType = 'textarea';
                     break;
                 case 'string':
                     $fieldType = 'text';
@@ -124,7 +136,6 @@ class ResourceGenerator
                 case 'integer':
                 case 'bigint':
                 case 'smallint':
-                case 'timestamp':
                     $fieldType = 'number';
                     break;
                 case 'decimal':
@@ -132,16 +143,17 @@ class ResourceGenerator
                 case 'real':
                     $fieldType = 'decimal';
                     break;
+                case 'timestamp':
                 case 'datetime':
-                    $fieldType = 'datetime';
+                    $fieldType    = 'datetime';
                     $defaultValue = "date('Y-m-d H:i:s')";
                     break;
                 case 'date':
-                    $fieldType = 'date';
+                    $fieldType    = 'date';
                     $defaultValue = "date('Y-m-d')";
                     break;
                 case 'time':
-                    $fieldType = 'time';
+                    $fieldType    = 'time';
                     $defaultValue = "date('H:i:s')";
                     break;
                 case 'text':
@@ -149,7 +161,7 @@ class ResourceGenerator
                     $fieldType = 'textarea';
                     break;
                 default:
-                    $fieldType = 'text';
+                    $fieldType    = 'text';
                     $defaultValue = "'{$default}'";
             }
 
@@ -192,7 +204,7 @@ class ResourceGenerator
         $output = '';
 
         foreach ($this->getTableColumns() as $column) {
-            $name = $column->getName();
+            $name  = $column->getName();
             $label = $this->formatLabel($name);
 
             $output .= sprintf($this->formats['grid_column'], $name, $label);

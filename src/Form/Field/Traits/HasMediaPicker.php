@@ -10,7 +10,7 @@ use OpenAdmin\Admin\Form\Field;
  */
 trait HasMediaPicker
 {
-    public $picker = false;
+    public $picker      = false;
     public $picker_path = '';
 
     /**
@@ -61,10 +61,10 @@ trait HasMediaPicker
             );
         }
 
-        $this->modal = sprintf('media-picker-modal-%s', $this->getElementClassString());
+        $this->modal = sprintf('media-picker-modal-%s', $this->getVariableName());
         $this->addVariables([
             'modal'       => $this->modal,
-            'selector'    => $this->getElementClassString(),
+            'selector'    => $this->getVariableName(),
             'name'        => $this->formatName($this->column),
             'multiple'    => !empty($this->multiple),
             'picker_path' => $this->picker_path,
