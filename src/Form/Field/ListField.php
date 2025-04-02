@@ -86,8 +86,10 @@ class ListField extends Field
 
             if (addBtn) {
                 addBtn.addEventListener('click', function () {
-                    var tpl = document.querySelector('template.' + column + '-tpl').innerHTML;
+                    var tpl = tabPane.querySelector('template.' + column + '-tpl').innerHTML;
                     var clone = htmlToElement(tpl);
+                    const locale = tabPane.id.split('_')[1];
+                    clone.querySelector('input').name = 'translations[' + locale + '][' + column + '][]';
                     listTable.appendChild(clone);
                 });
             }
