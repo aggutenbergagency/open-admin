@@ -54,7 +54,7 @@ use OpenAdmin\Admin\Form\Field;
  * @method Field\Table          table($column, $label, $builder)
  * @method Field\Timezone       timezone($column, $label = '')
  * @method Field\KeyValue       keyValue($column, $label = '')
- * @method Field\ListField      list($column, $label = '')
+ * @method Field\ListField      list($column, $label = '', $locales = [])
  * @method Field\HasMany        hasMany($relationName, $label = '', $callback)
  * @method Field\HasMany        morphMany($relationName, $label = '', $callback)
  * @method Field\BelongsTo      belongsTo($column, $selectable, $label = '')
@@ -77,7 +77,7 @@ trait HasFields
         'date'           => Field\Date::class,
         'dateRange'      => Field\DateRange::class,
         'datetime'       => Field\Datetime::class,
-        'dateTimeRange'  => Field\DatetimeRange::class,
+        'dateTimeRange'  => Field\DateTimeRange::class,
         'datetimeRange'  => Field\DatetimeRange::class,
         'decimal'        => Field\Decimal::class,
         'display'        => Field\Display::class,
@@ -237,5 +237,28 @@ trait HasFields
             'css' => $css->flatten()->unique()->filter()->toArray(),
             'js'  => $js->flatten()->unique()->filter()->toArray(),
         ];
+    }
+
+    /**
+     * @param string $column
+     * @param string $label
+     * @param array $locales
+     * @return Field\ListField
+     */
+    public function list($column, $label = '', $locales = [])
+    {
+        $class = Arr::get(static::$availableFields, 'list');
+
+        /* @var Field $field */
+        $field = new $class($column, array_slice(func_get_args(), 1));
+        $field->options(['locales' => $locales]);
+
+        if ($this instanceof WidgetForm) {
+            $field->setWidgetForm($this);
+        } else {
+            $field->setForm($this);
+        }
+
+        return $field;
     }
 }
