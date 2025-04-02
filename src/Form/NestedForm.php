@@ -88,6 +88,11 @@ class NestedForm
     public $model;
 
     /**
+     * @var string
+     */
+    public $locale;
+
+    /**
      * Model data.
      *
      * @var array
