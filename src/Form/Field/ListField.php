@@ -76,18 +76,64 @@ class ListField extends Field
     protected function setupScript()
     {
         $this->script = <<<JS
+(function() {
+    if (typeof updateListInputNames !== 'function') {
+        const tabPanes = document.querySelectorAll('.tab-pane[id^="translations_"]');
+        tabPanes.forEach(tabPane => {
+            const column = '{$this->column}';
+            const addBtn = tabPane.querySelector('.' + column + '-add');
+            const listTable = tabPane.querySelector('tbody.list-' + column + '-table');
 
-        document.querySelector('.{$this->column}-add').addEventListener('click', function () {
-            var tpl = document.querySelector('template.{$this->column}-tpl').innerHTML;
-            var clone = htmlToElement(tpl);
-            document.querySelector('tbody.list-{$this->column}-table').appendChild(clone);
-        });
+            if (addBtn) {
+                addBtn.addEventListener('click', function () {
+                    var tpl = document.querySelector('template.' + column + '-tpl').innerHTML;
+                    var clone = htmlToElement(tpl);
+                    listTable.appendChild(clone);
+                });
+            }
 
-        document.querySelector('tbody.list-{$this->column}-table').addEventListener('click', function (event) {
-            if (event.target.classList.contains('{$this->column}-remove')){
-                event.target.closest('tr').remove();
+            if (listTable) {
+                listTable.addEventListener('click', function (event) {
+                    if (event.target.classList.contains(column + '-remove')){
+                        event.target.closest('tr').remove();
+                    }
+                });
             }
         });
+
+        // Function to update input names for all tabs
+        function updateListInputNames(column) {
+            const tabPanes = document.querySelectorAll('.tab-pane[id^="translations_"]');
+            tabPanes.forEach(tabPane => {
+                if (tabPane && typeof tabPane.querySelectorAll === 'function') {
+                    const locale = tabPane.id.split('_')[1]; // Extract locale from tab id
+                    const inputs = tabPane.querySelectorAll('tbody.list-' + column + '-table input');
+                    inputs.forEach(input => {
+                        input.name = 'translations[' + locale + '][' + column + '][]';
+                    });
+                }
+            });
+        }
+
+        // Call updateListInputNames on tab change
+        const tabLinks = document.querySelectorAll('.nav-link');
+        tabLinks.forEach(tabLink => {
+            tabLink.addEventListener('shown.bs.tab', function () {
+                const tabPaneId = this.getAttribute('href').substring(1);
+                const tabPane = document.getElementById(tabPaneId);
+                if (tabPane) {
+                    updateListInputNames('{$this->column}');
+                }
+            });
+        });
+
+        // Initial call to set input names on page load
+        const firstTabPane = document.querySelector('.tab-pane[id^="translations_"]');
+        if (firstTabPane) {
+            updateListInputNames('{$this->column}');
+        }
+    }
+})();
 JS;
     }
 
